@@ -154,7 +154,6 @@ from PyQt5.QtCore import QObject, pyqtSignal
     "定义标签": ("s", 123, "定义标签"),
     "代码块开始": ("null", 124, "开始代码块"),
     "代码块结束": ("null", 125, "结束代码块"),
-    "条件判断": ("s", 126, "条件判断(yes==1)"),
 }
 
 # 英文命令到中文的映射
@@ -270,24 +269,30 @@ class 增强脚本转换器:
     
     @staticmethod
     def 文本到节点(文本):
-        """将文本脚本转换为可视化节点列表"""
-        print("开始转换文本到节点...")
-        
+        """将文本脚本转换为可视化节点列表 - 增强版"""
+        print(f"开始转换文本到节点... 文本长度: {len(文本)}")
+    
         节点列表 = []
         行列表 = 文本.split('\n')
-        
+    
         x, y = 50, 50
-        
+        当前列 = 0
+        最大列 = 3  # 每行最多3个节点
+    
         for i, 行 in enumerate(行列表):
             行 = 行.strip()
-            if not 行 or 行.startswith(';'):  # 跳过空行和注释
+            if not 行:
                 continue
             
+            # 跳过注释和特殊行
+            if 行.startswith(';') or 行 == 'end' or 行.startswith('@'):
+                continue
+        
             print(f"解析第{i+1}行: {行[:50]}...")
-            
+        
             # 解析命令
             命令名 = None
-            
+        
             # 1. 检查是否是流程控制
             if 行.startswith('if('):
                 命令名 = "if条件"
@@ -303,31 +308,47 @@ class 增强脚本转换器:
                 命令名 = "代码块结束"
             else:
                 # 2. 尝试从英文命令映射
-                for 英文命令, 中文命令 in 增强脚本转换器.英文到中文映射.items():
-                    if 英文命令 in 行 and '(' in 行:
-                        命令名 = 中文命令
-                        break
-            
+                英文命令 = 增强脚本转换器.解析英文命令(行)
+                if 英文命令 and 英文命令 in 增强脚本转换器.英文到中文映射:
+                    命令名 = 增强脚本转换器.英文到中文映射[英文命令]
+        
             if 命令名 and 命令名 in 脚本命令:
                 print(f"找到命令: {命令名}")
-                
+            
                 # 创建节点
                 try:
                     节点 = 可视化命令节点(命令名)
+                
+                    # 设置位置
                     节点.setPos(x, y)
-                    节点.设置原始行(行)
-                    
+                
+                    # 设置原始行以便解析参数
+                    if 命令名 not in ["代码块开始", "代码块结束"]:  # 这些不需要参数
+                        节点.设置原始行(行)
+                
                     节点列表.append(节点)
-                    
+                
                     # 更新位置
-                    y += 100
-                    if y > 600:
+                    当前列 += 1
+                    if 当前列 >= 最大列:
+                        当前列 = 0
+                        y += 120
+                        x = 50
+                    else:
+                        x += 280
+                    
+                    # 如果超出一定高度，重置
+                    if y > 800:
                         y = 50
-                        x += 250
-                        
+                        x += 300
+                    
                 except Exception as e:
                     print(f"创建节点失败: {e}")
-        
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f"未找到命令或跳过: {行[:30]}...")
+    
         print(f"转换完成，共创建{len(节点列表)}个节点")
         return 节点列表
     
@@ -878,7 +899,7 @@ class Nage任务编辑器(QMainWindow):
         # 流程控制按钮
         流程按钮信息 = [
             "if条件", "else分支", "跳转标签", "定义标签",
-            "代码块开始", "代码块结束", "条件判断"
+            "代码块开始", "代码块结束"
         ]
     
         for 按钮名 in 流程按钮信息:
@@ -893,7 +914,6 @@ class Nage任务编辑器(QMainWindow):
                 "定义标签": "#673AB7",
                 "代码块开始": "#2196F3",
                 "代码块结束": "#03A9F4",
-                "条件判断": "#FF9800"
             }.get(按钮名, "#607D8B")
         
             按钮.setStyleSheet(f"""
@@ -1039,10 +1059,25 @@ class Nage任务编辑器(QMainWindow):
             任务信息 = self.解析器.任务字典[任务编号]
         
             # 优先使用保存的脚本内容
-            if '脚本内容' in 任务信息 and 任务信息['脚本内容']:
-                完整脚本 = 任务信息['脚本内容']
+            显示内容 = None
+        
+            if hasattr(self, '显示中文') and self.显示中文:
+                # 中文显示模式
+                if '中文脚本' in 任务信息 and 任务信息['中文脚本']:
+                    显示内容 = 任务信息['中文脚本']
+                elif '英文脚本' in 任务信息 and 任务信息['英文脚本']:
+                    # 翻译英文到中文
+                    显示内容 = 中英文翻译器.翻译为中文(任务信息['英文脚本'])
             else:
-                # 如果没有保存的内容，从原始解析器中获取
+                # 英文显示模式
+                if '英文脚本' in 任务信息 and 任务信息['英文脚本']:
+                    显示内容 = 任务信息['英文脚本']
+                elif '中文脚本' in 任务信息 and 任务信息['中文脚本']:
+                    # 翻译中文到英文
+                    显示内容 = 中英文翻译器.翻译为英文(任务信息['中文脚本'])
+        
+            # 如果没有保存的内容，从原始解析器中获取
+            if not 显示内容:
                 NPC脚本数据 = self.解析器.获取任务NPC脚本(任务编号)
             
                 # 构建完整脚本
@@ -1061,18 +1096,29 @@ class Nage任务编辑器(QMainWindow):
                         信息文本 += "end\n"
                     信息文本 += "\n"
             
-                完整脚本 = 信息文本
-                任务信息['脚本内容'] = 完整脚本
+                显示内容 = 信息文本
+            
+                # 保存到任务信息
+                任务信息['英文脚本'] = 显示内容
+                if hasattr(self, '显示中文') and self.显示中文:
+                    任务信息['中文脚本'] = 中英文翻译器.翻译为中文(显示内容)
         
             # 显示在文本编辑器中
-            self.脚本编辑器.setText(完整脚本)
+            self.脚本编辑器.setText(显示内容)
             self.当前脚本 = f"任务{任务编号}_完整脚本"
             self.更新行号()
         
-             # 如果当前是可视化模式，也导入到可视化编辑器
+            # 保存原始英文代码
+            if hasattr(self, '显示中文') and self.显示中文:
+                self.原始英文代码 = 任务信息.get('英文脚本', '')
+            else:
+                self.原始英文代码 = 显示内容
+        
+            # 如果当前是可视化模式，也导入到可视化编辑器
             if self.编辑模式 == "可视化" and hasattr(self, '可视化编辑器') and self.可视化编辑器:
                 try:
-                    self.可视化编辑器.从文本导入(完整脚本)
+                    英文代码 = self.获取当前代码()
+                    self.可视化编辑器.从文本导入(英文代码)
                     self.状态栏.showMessage(f"任务{任务编号}已加载到可视化编辑器")
                 except Exception as e:
                     print(f"加载到可视化编辑器时出错: {e}")
@@ -1123,16 +1169,51 @@ class Nage任务编辑器(QMainWindow):
     
         print(f"已保存任务{self.当前任务}的修改")
 
+    # 修复中英文切换问题
     def 切换中英文显示(self):
-        """切换中英文显示"""
-        self.显示中文 = not self.显示中文
-        
-        if self.显示中文:
-            self.翻译按钮.setText("英文显示")
-            self.中文显示代码()
+        """切换中英文显示 - 确保内容保存"""
+        # 获取当前内容
+        当前内容 = self.脚本编辑器.toPlainText()
+    
+        if not self.显示中文:
+            # 从英文切换到中文
+            if 当前内容:
+                try:
+                    # 保存原始英文代码
+                    self.原始英文代码 = 当前内容
+                    # 翻译为中文
+                    中文代码 = 中英文翻译器.翻译为中文(当前内容)
+                    self.脚本编辑器.blockSignals(True)
+                    self.脚本编辑器.setPlainText(中文代码)
+                    self.脚本编辑器.blockSignals(False)
+                    self.显示中文 = True
+                    self.翻译按钮.setText("英文显示")
+                    self.状态栏.showMessage("已切换到中文显示")
+                
+                    # 保存到当前任务
+                    if self.当前任务 and hasattr(self, '解析器') and self.解析器:
+                        if self.当前任务 in self.解析器.任务字典:
+                            self.解析器.任务字典[self.当前任务]['中文脚本'] = 中文代码
+                            self.解析器.任务字典[self.当前任务]['英文脚本'] = self.原始英文代码
+                        
+                except Exception as e:
+                    print(f"翻译为中文时出错: {e}")
+                    self.显示中文 = False
+                    self.翻译按钮.setText("中文显示")
         else:
-            self.翻译按钮.setText("中文显示")
-            self.英文显示代码()
+            # 从中文切换回英文
+            if hasattr(self, '原始英文代码') and self.原始英文代码:
+                self.脚本编辑器.blockSignals(True)
+                self.脚本编辑器.setPlainText(self.原始英文代码)
+                self.脚本编辑器.blockSignals(False)
+                self.显示中文 = False
+                self.翻译按钮.setText("中文显示")
+                self.状态栏.showMessage("已切换到英文显示")
+            
+                # 保存到当前任务
+                if self.当前任务 and hasattr(self, '解析器') and self.解析器:
+                    if self.当前任务 in self.解析器.任务字典:
+                        self.解析器.任务字典[self.当前任务]['英文脚本'] = self.原始英文代码
     
     def 初始化命令标签页(self):
         """初始化命令标签页"""
@@ -1819,41 +1900,37 @@ class Nage任务编辑器(QMainWindow):
     
     def 查找文本(self):
         """查找文本 - 修改为可连续查找"""
-        if not hasattr(self, '查找对话框') or not self.查找对话框:
-            # 创建查找对话框
-            self.查找对话框 = QDialog(self)
-            self.查找对话框.setWindowTitle("查找")
-            self.查找对话框.setFixedSize(300, 150)
-            
-            布局 = QVBoxLayout(self.查找对话框)
-            
-            # 查找输入框
-            输入布局 = QHBoxLayout()
-            输入标签 = QLabel("查找内容:")
-            self.查找输入框 = QLineEdit()
-            输入布局.addWidget(输入标签)
-            输入布局.addWidget(self.查找输入框)
-            布局.addLayout(输入布局)
-            
-            # 区分大小写复选框
-            self.区分大小写复选框 = QCheckBox("区分大小写")
-            布局.addWidget(self.区分大小写复选框)
-            
-            # 按钮
-            按钮布局 = QHBoxLayout()
-            查找下一个按钮 = QPushButton("查找下一个")
-            查找下一个按钮.clicked.connect(self.执行查找)
-            关闭按钮 = QPushButton("关闭")
-            关闭按钮.clicked.connect(self.查找对话框.close)
-            按钮布局.addWidget(查找下一个按钮)
-            按钮布局.addWidget(关闭按钮)
-            布局.addLayout(按钮布局)
-            
-            self.查找对话框.show()
-            self.查找输入框.setFocus()
-        else:
-            self.查找对话框.show()
-            self.查找输入框.setFocus()
+        # 创建查找对话框
+        self.查找对话框 = QDialog(self)
+        self.查找对话框.setWindowTitle("查找")
+        self.查找对话框.setFixedSize(300, 150)
+    
+        布局 = QVBoxLayout(self.查找对话框)
+    
+        # 查找输入框
+        输入布局 = QHBoxLayout()
+        输入标签 = QLabel("查找内容:")
+        self.查找输入框 = QLineEdit()
+        输入布局.addWidget(输入标签)
+        输入布局.addWidget(self.查找输入框)
+        布局.addLayout(输入布局)
+    
+        # 区分大小写复选框
+        self.区分大小写复选框 = QCheckBox("区分大小写")
+        布局.addWidget(self.区分大小写复选框)
+    
+        # 按钮
+        按钮布局 = QHBoxLayout()
+        查找下一个按钮 = QPushButton("查找下一个")
+        查找下一个按钮.clicked.connect(lambda: self.执行查找)
+        关闭按钮 = QPushButton("关闭")
+        关闭按钮.clicked.connect(lambda: self.查找对话框.close)
+        按钮布局.addWidget(查找下一个按钮)
+        按钮布局.addWidget(关闭按钮)
+        布局.addLayout(按钮布局)
+    
+        self.查找对话框.show()
+        self.查找输入框.setFocus()
     
     def 替换文本(self):
         """替换文本"""
@@ -1869,25 +1946,25 @@ class Nage任务编辑器(QMainWindow):
         """执行查找操作"""
         if not hasattr(self, '查找输入框'):
             return
-        
+    
         查找内容 = self.查找输入框.text().strip()
         if not 查找内容:
             return
-        
+    
         # 设置查找选项
         选项 = QTextDocument.FindFlags()
-        if self.区分大小写复选框.isChecked():
+        if hasattr(self, '区分大小写复选框') and self.区分大小写复选框.isChecked():
             选项 |= QTextDocument.FindCaseSensitively
-        
+    
         # 执行查找
         找到 = self.脚本编辑器.find(查找内容, 选项)
-        
+    
         if not 找到:
             # 没找到，从开头重新查找
             光标 = self.脚本编辑器.textCursor()
             光标.setPosition(0)
             self.脚本编辑器.setTextCursor(光标)
-            
+        
             找到 = self.脚本编辑器.find(查找内容, 选项)
             if not 找到:
                 QMessageBox.information(self.查找对话框, "查找", "已搜索到文档末尾")
@@ -1940,6 +2017,10 @@ class Nage任务编辑器(QMainWindow):
             try:
                 # 翻译为英文保存
                 self.原始英文代码 = 中英文翻译器.翻译为英文(当前中文代码)
+                # 保存到任务字典
+                if self.当前任务 and hasattr(self, '解析器') and self.解析器:
+                    if self.当前任务 in self.解析器.任务字典:
+                        self.解析器.任务字典[self.当前任务]['原始英文代码'] = self.原始英文代码
             except Exception as e:
                 print(f"翻译为英文时出错: {e}")
     
@@ -2084,10 +2165,12 @@ class NPC脚本对话框(QDialog):
         NPC数字 = self.编号输入框.text().strip().zfill(5)
         return f"Npc{NPC数字}"
 
+
 class 简化可视化编辑器(QWidget):
     def __init__(self, 父编辑器=None):
         super().__init__()
         self.父编辑器 = 父编辑器
+        self.状态栏 = None  # 添加状态栏属性
     
         if not hasattr(self, '调整颜色亮度'):
             def 调整颜色亮度(hex_color, factor):
@@ -2115,7 +2198,7 @@ class 简化可视化编辑器(QWidget):
         # 常用流程控制按钮（使用脚本命令字典中的定义）
         流程按钮信息 = [
             "if条件", "else分支", "跳转标签", "定义标签",
-            "代码块开始", "代码块结束", "条件判断"
+            "代码块开始", "代码块结束"
         ]
         
         for 按钮名 in 流程按钮信息:
@@ -2269,14 +2352,20 @@ class 简化可视化编辑器(QWidget):
         )
     
     def 从文本同步(self):
-        """从文本编辑器同步代码到可视化编辑器"""
+        """从文本编辑器同步代码到可视化编辑器 - 修复版"""
         if self.父编辑器:
-            当前文本 = self.父编辑器.获取当前代码()
-            if 当前文本:
-                self.从文本导入(当前文本)
-                # 显示状态消息
-                if hasattr(self.父编辑器, '状态栏'):
-                    self.父编辑器.状态栏.showMessage("已从文本编辑器同步到可视化编辑器")
+            当前代码 = self.父编辑器.获取当前代码()
+            if 当前代码:
+                成功 = self.从文本导入(当前代码)
+                if 成功:
+                    #self.状态栏.showMessage("已从文本编辑器同步到可视化编辑器")
+                    # 更新主编辑器的状态栏
+                    if hasattr(self.父编辑器, '状态栏'):
+                        self.父编辑器.状态栏.showMessage("已同步到可视化编辑器")
+                else:
+                    self.状态栏.showMessage("同步失败：无法解析代码")
+            else:
+                self.状态栏.showMessage("没有可同步的代码")
 
     def 生成代码(self):
         """从可视化节点生成脚本代码"""
@@ -2450,6 +2539,11 @@ class 简化可视化编辑器(QWidget):
                 最后一个节点 = self.节点列表[-1]
                 x = 最后一个节点.pos().x() + 节点.宽度 + 20
                 y = 最后一个节点.pos().y()
+                
+                # 如果太靠右，换行
+                if x + 节点.宽度 > 1800:
+                    x = 50
+                    y = 最后一个节点.pos().y() + 节点.高度 + 20
             else:
                 x, y = 50, 50
         
@@ -2465,6 +2559,9 @@ class 简化可视化编辑器(QWidget):
         
             print(f"节点已添加到画布，位置: ({x}, {y})")
         
+            # 确保视图可以看到新节点
+            self.画布视图.ensureVisible(节点)
+
         except Exception as e:
             print(f"创建节点时出错: {e}")
             import traceback
@@ -2569,66 +2666,64 @@ class 中英文翻译器:
     
     @classmethod
     def 翻译为中文(cls, 英文代码):
-        """将英文代码翻译为中文显示"""
-        中文代码 = 英文代码
-        
-        # 先翻译命令
-        for 英文命令, 中文命令 in cls.英文到中文.items():
-            中文代码 = 中文代码.replace(英文命令, 中文命令)
-        
-        # 格式化缩进
-        行列表 = 中文代码.split('\n')
-        格式化行列表 = []
-        缩进级别 = 0
+        """将英文代码翻译为中文显示 - 保留原始格式"""
+        行列表 = 英文代码.split('\n')
+        中文行列表 = []
         
         for 行 in 行列表:
-            行 = 行.rstrip()
-            if not 行:
-                continue
+            原始行 = 行.rstrip()
+            翻译行 = 原始行
+            
+            # 保留缩进
+            缩进 = len(原始行) - len(原始行.lstrip())
+            
+            # 翻译命令但不影响参数
+            if '(' in 翻译行:
+                # 提取命令部分
+                命令结束位置 = 翻译行.find('(')
+                英文命令 = 翻译行[:命令结束位置].strip()
+                参数部分 = 翻译行[命令结束位置:]
                 
-            # 计算缩进
-            if 行.strip().endswith('结束'):
-                缩进级别 = max(0, 缩进级别 - 1)
+                # 查找中文命令
+                中文命令 = cls.英文到中文.get(英文命令, 英文命令)
+                
+                # 重新组合行
+                翻译行 = ' ' * 缩进 + 中文命令 + 参数部分
             
-            缩进 = '    ' * 缩进级别
-            格式化行 = f"{缩进}{行}"
-            格式化行列表.append(格式化行)
-            
-            if 行.strip().startswith('开始'):
-                缩进级别 += 1
+            中文行列表.append(翻译行)
         
-        return '\n'.join(格式化行列表)
+        return '\n'.join(中文行列表)
     
     @classmethod
     def 翻译为英文(cls, 中文代码):
-        """将中文代码翻译回英文"""
-        英文代码 = 中文代码
+        """将中文代码翻译回英文 - 保留原始格式"""
+        行列表 = 中文代码.split('\n')
+        英文行列表 = []
         
-        # 先翻译关键字
-        关键字映射 = {
-            "如果": "if",
-            "否则": "else",
-            "跳转到": "goto",
-            "是": "yes",
-            "否": "no",
-            "开始": "{",
-            "结束": "}",
-            "等于": "==",
-            "大于": ">",
-            "小于": "<",
-            "大于等于": ">=",
-            "小于等于": "<=",
-            "不等于": "!=",
-        }
+        for 行 in 行列表:
+            原始行 = 行.rstrip()
+            翻译行 = 原始行
+            
+            # 保留缩进
+            缩进 = len(原始行) - len(原始行.lstrip())
+            
+            # 翻译命令但不影响参数
+            if '(' in 翻译行:
+                # 提取命令部分
+                命令结束位置 = 翻译行.find('(')
+                中文命令 = 翻译行[:命令结束位置].strip()
+                参数部分 = 翻译行[命令结束位置:]
+                
+                # 查找英文命令
+                英文命令 = cls.中文到英文.get(中文命令, 中文命令)
+                
+                # 重新组合行
+                翻译行 = ' ' * 缩进 + 英文命令 + 参数部分
+            
+            英文行列表.append(翻译行)
         
-        for 中文关键字, 英文关键字 in 关键字映射.items():
-            英文代码 = 英文代码.replace(中文关键字, 英文关键字)
-        
-        # 翻译命令
-        for 中文命令, 英文命令 in cls.中文到英文.items():
-            英文代码 = 英文代码.replace(中文命令, 英文命令)
-        
-        return 英文代码
+        return '\n'.join(英文行列表)
+
 
 class 可视化命令节点(QGraphicsItem):
     """可视化命令节点"""
